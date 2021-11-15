@@ -1,0 +1,80 @@
+pipeline {
+        agent any
+    options {
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+        disableConcurrentBuilds()
+        timeout(time: 1, unit: 'HOURS')
+        timestamps()
+    }
+        
+  stages {
+
+
+      //  stage('Decrypt files') {
+      //    steps{
+            //We can use ansible Vault to protect secret  (not used to keep this pipeline simple) 
+            // ansibleVault action: 'decrypt', vaultCredentialsId: 'AnsibleVault', input: "./ssh_keys/access.key"
+        // }
+      // }
+
+    stage('Terraform Init') {
+
+      steps {
+          sh """
+          cd ./terraform/
+          terraform init 
+          """
+      }
+    }
+
+    stage('Terraform Plan') {
+
+      steps{
+          sh """
+          cd ./terraform/
+          terraform plan -out ./out-${BUILD_NUMBER}.tfplan
+          """
+      }
+    }//Terraform Plan
+
+    stage('Terraform Apply') {
+
+      steps{
+          sh """
+          cd ./terraform/
+          terraform apply ./out-${BUILD_NUMBER}.tfplan
+          """
+      }
+    }//Terraform Apply
+
+
+
+    stage('Test Deployment'){
+
+      steps {
+        sh """
+         terraform output --json > ./tests/files/terraform.json
+         inspec exec tests -t aws://
+
+        """
+
+      }
+    }//Test Deployment
+
+
+
+
+  post {
+
+    //email notification
+        success {
+            emailext body: "Email automatique, Do Not Reply , Terraform Deploy Helloworld  OK    Project: ${env.JOB_NAME} Build Number: ${env.BUILD_NUMBER}    URL de build: ${env.BUILD_URL}", recipientProviders: [[$class: 'DevelopersRecipientProvider'], [$class: 'RequesterRecipientProvider']], subject: "Success: Job terraform deploy Helloworld Instance  "
+        }
+        failure {
+            emailext body: "Email automatique, Do Not Reply , Terraform Deploy Jenkins Helloworld  KO     Project: ${env.JOB_NAME}   Build Number: ${env.BUILD_NUMBER}     URL de build: ${env.BUILD_URL}", recipientProviders: [[$class: 'DevelopersRecipientProvider'], [$class: 'RequesterRecipientProvider']], subject: "failure: Job terraform deploy Helloworld Instance  "
+        }
+      always {
+        cleanWs()
+      }
+  }
+}
